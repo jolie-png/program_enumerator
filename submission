@@ -1,0 +1,112 @@
+import copy
+from collections import deque
+
+
+class ProgramNode:
+
+    # initialize & create node for ABT
+    def __init__(self, token, children=None):
+        self.token = token
+        self.children = children if children is not None else []
+
+    def evaluate(self, env):
+        # evaluate the AST by processing & executing arithmetic expressions, like a dictionary
+        if self.token == 'x':
+            return env['x']
+        elif self.token == 'y':
+            return env['y']
+        elif self.token in ('0', '1', '2'):
+            return int(self.token)
+        elif self.token == '+':
+            return self.children[0].evaluate(env) + self.children[1].evaluate(env)
+        elif self.token == '-':
+            return self.children[0].evaluate(env) - self.children[1].evaluate(env)
+        elif self.token == '*':
+            return self.children[0].evaluate(env) * self.children[1].evaluate(env)
+        raise ValueError(f"Unknown token: {self.token}")
+
+    def to_polish(self):
+        # convert from AST to polish (prefix notation) format
+        if not self.children:
+            return self.token
+        child_strs = [child.to_polish() for child in self.children]
+        return f"{self.token} " + " ".join(child_strs)
+
+
+def generate_programs():
+    operators = ['+', '-', '*']
+    terminals = ['x', 'y', '0', '1', '2']
+
+    worklist = deque()
+
+    # base case (size 1 tree) w operator nodes w 2 empty child slots
+    for t in terminals:
+        node = ProgramNode(t)
+        worklist.append(([], node, 1))
+
+    for op in operators:
+        node = ProgramNode(op, [None, None])
+        worklist.append(([[0], [1]], node, 1))
+
+    # BFS to complete ASTs
+    while worklist:
+        open_slot_paths, root, size = worklist.popleft()
+
+        if not open_slot_paths:
+            yield root
+            continue
+
+        target_path = open_slot_paths[0]
+        remaining_paths = open_slot_paths[1:]
+
+        # branch 1: substitute the open slot with a terminal node
+        for t in terminals:
+            new_root = copy.deepcopy(root)
+            curr = new_root
+
+            for step in target_path[:-1]:
+                curr = curr.children[step]
+            curr.children[target_path[-1]] = ProgramNode(t)
+            worklist.append((remaining_paths, new_root, size + 1))
+
+        # branch 2: substitute the open slot w an operator node, adding two new open slots
+        for op in operators:
+            new_root = copy.deepcopy(root)
+            curr = new_root
+
+            for step in target_path[:-1]:
+                curr = curr.children[step]
+
+            new_op_node = ProgramNode(op, [None, None])
+            curr.children[target_path[-1]] = new_op_node
+
+            new_paths = [target_path + [0], target_path + [1]] + remaining_paths
+            worklist.append((new_paths, new_root, size + 1))
+
+
+def synthesize(examples, max_evaluations=200_000):
+    count = 0
+
+    # enumerate programs sequentially
+    for program_ast in generate_programs():
+        count += 1
+        # no infinite search loops 
+        if count > max_evaluations:
+            break
+
+        try:
+            valid = True
+
+            for i1, i2, expected_o1 in examples:
+                env = {'x': i1, 'y': i2}
+                if program_ast.evaluate(env) != expected_o1:
+                    valid = False
+                    break
+
+            if valid:
+                return program_ast.to_polish()
+
+        except (OverflowError, ZeroDivisionError):
+            continue
+
+    return None
